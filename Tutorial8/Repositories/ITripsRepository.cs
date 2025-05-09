@@ -4,5 +4,5 @@ namespace Tutorial8.Repositories;
 
 public interface ITripsRepository
 {
-    Task<List<TripDTO>> GetAllTripsWithCountriesAsync();
+    Task<List<TripDTO>> GetAllTripsWithCountriesAsync(CancellationToken cancellationToken);
 }

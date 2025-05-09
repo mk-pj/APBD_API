@@ -9,9 +9,9 @@ public class TripsService(ITripsRepository tripsRepository) : ITripsService
 
     private readonly ITripsRepository _tripsRepository = tripsRepository;
 
-    public async Task<List<TripDTO>> GetTrips()
+    public async Task<List<TripDTO>> GetTrips(CancellationToken cancellationToken)
     {
-        return await _tripsRepository.GetAllTripsWithCountriesAsync();
+        return await _tripsRepository.GetAllTripsWithCountriesAsync(cancellationToken);
     }
 
 }

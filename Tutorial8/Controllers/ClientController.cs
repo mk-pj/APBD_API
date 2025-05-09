@@ -16,9 +16,9 @@ public class ClientController(IClientService clientService) : ControllerBase
         If the client does not exist, returns 404 Not Found
     */
     [HttpGet("{id:int}/trips")]
-    public async Task<IActionResult> GetClientTrips(int id)
+    public async Task<IActionResult> GetClientTrips(int id, CancellationToken cancellationToken)
     {
-        var client = await _clientService.GetClientWithTripsAsync(id);
+        var client = await _clientService.GetClientWithTripsAsync(id, cancellationToken);
         if(client == null)
             return NotFound();
         return Ok(client);
@@ -29,9 +29,9 @@ public class ClientController(IClientService clientService) : ControllerBase
         Returns 201 Created and the new client ID if successful, or 400 Bad Request if validation fails.
     */
     [HttpPost]
-    public async Task<IActionResult> AddClient([FromBody] NewClientDto clientDto)
+    public async Task<IActionResult> AddClient([FromBody] NewClientDto clientDto, CancellationToken cancellationToken)
     {
-        var id = await _clientService.AddClientAsync(clientDto);
+        var id = await _clientService.AddClientAsync(clientDto, cancellationToken);
         return Created($"api/clients/{id}", id);
     }
 
@@ -41,9 +41,9 @@ public class ClientController(IClientService clientService) : ControllerBase
         Returns 400 Bad Request if: client does not exist, trip does not exist, client is already registered, or trip is full. 
     */
     [HttpPut("{clientId:int}/trips/{tripId:int}")]
-    public async Task<IActionResult> RegisterToTrip(int clientId, int tripId)
+    public async Task<IActionResult> RegisterToTrip(int clientId, int tripId, CancellationToken cancellationToken)
     {
-        await _clientService.RegisterClientToTripAsync(clientId, tripId);
+        await _clientService.RegisterClientToTripAsync(clientId, tripId, cancellationToken);
         return Created($"api/clients/{clientId}/trips/{tripId}", null);
     }
 
@@ -53,9 +53,9 @@ public class ClientController(IClientService clientService) : ControllerBase
         Returns 400 Bad Request if the client is not registered for the trip.
     */
     [HttpDelete("{clientId:int}/trips/{tripId:int}")]
-    public async Task<IActionResult> DeleteClientFromTrip(int clientId, int tripId)
+    public async Task<IActionResult> DeleteClientFromTrip(int clientId, int tripId, CancellationToken cancellationToken)
     {
-        await _clientService.DeleteClientFromTripAsync(clientId, tripId);
+        await _clientService.DeleteClientFromTripAsync(clientId, tripId, cancellationToken);
         return NoContent();
     }
     

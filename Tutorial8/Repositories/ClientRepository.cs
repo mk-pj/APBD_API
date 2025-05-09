@@ -10,7 +10,7 @@ public class ClientRepository(IConfiguration configuration) : IClientRepository
     private readonly string _connectionString = configuration.GetConnectionString("DefaultConnection")!;
     
     
-    public async Task<ClientWithTripsDto?> GetClientWithTripsAsync(int clientId)
+    public async Task<ClientWithTripsDto?> GetClientWithTripsAsync(int clientId, CancellationToken cancellationToken)
     {
         const string query = @"
             SELECT cl.IdClient, cl.FirstName, cl.LastName,
@@ -30,12 +30,12 @@ public class ClientRepository(IConfiguration configuration) : IClientRepository
         await using var cmd = new SqlCommand(query, conn);
         cmd.Parameters.AddWithValue("@IdClient", clientId);
         
-        await using var reader = await cmd.ExecuteReaderAsync();
+        await using var reader = await cmd.ExecuteReaderAsync(cancellationToken);
 
         ClientWithTripsDto? client = null;
         var tripDict = new Dictionary<int, TripReservationDto>();
 
-        while (await reader.ReadAsync())
+        while (await reader.ReadAsync(cancellationToken))
         {
             if (client == null)
             {
@@ -93,14 +93,14 @@ public class ClientRepository(IConfiguration configuration) : IClientRepository
         return client;
     }
 
-    public async Task<int> AddClientAsync(NewClientDto newClient)
+    public async Task<int> AddClientAsync(NewClientDto newClient, CancellationToken cancellationToken)
     {
         const string query = @"
             INSERT INTO Client(FirstName, LastName, Email, Telephone, Pesel)
             VALUES(@FirstName, @LastName, @Email, @Telephone, @Pesel);
             SELECT SCOPE_IDENTITY();";
         await using var conn = new SqlConnection(_connectionString);
-        await conn.OpenAsync();
+        await conn.OpenAsync(cancellationToken);
         
         await using var cmd = new SqlCommand(query, conn);
         cmd.Parameters.AddWithValue("@FirstName", newClient.FirstName);
@@ -109,11 +109,11 @@ public class ClientRepository(IConfiguration configuration) : IClientRepository
         cmd.Parameters.AddWithValue("@Telephone", newClient.Telephone);
         cmd.Parameters.AddWithValue("@Pesel", newClient.Pesel);
         
-        var newClientId = await cmd.ExecuteScalarAsync();
+        var newClientId = await cmd.ExecuteScalarAsync(cancellationToken);
         return Convert.ToInt32(newClientId ?? throw new Exception("Insert failed"));
     }
 
-    public async Task RegisterClientToTripAsync(int clientId, int tripId)
+    public async Task RegisterClientToTripAsync(int clientId, int tripId, CancellationToken cancellationToken)
     {
         await using var conn = new SqlConnection(_connectionString);
         await conn.OpenAsync();
@@ -122,7 +122,7 @@ public class ClientRepository(IConfiguration configuration) : IClientRepository
         await using var clientCmd = new SqlCommand(checkClientQuery, conn);
         clientCmd.Parameters.AddWithValue("@IdClient", clientId);
         
-        if((await clientCmd.ExecuteScalarAsync()) == null)
+        if((await clientCmd.ExecuteScalarAsync(cancellationToken)) == null)
             throw new ArgumentException("Client does not exist");
         
         const string checkNumOfParticipantsQuery = @"
@@ -136,7 +136,7 @@ public class ClientRepository(IConfiguration configuration) : IClientRepository
 
         int? maxPeople, currentSingedUpCount;
 
-        await using (var reader = await numOfParticipantsCmd.ExecuteReaderAsync())
+        await using (var reader = await numOfParticipantsCmd.ExecuteReaderAsync(cancellationToken))
         {
             if(await reader.ReadAsync())
             {
@@ -172,10 +172,10 @@ public class ClientRepository(IConfiguration configuration) : IClientRepository
         registerCmd.Parameters.AddWithValue("@IdTrip", tripId);
         var registeredAt = int.Parse(DateTime.Now.ToString("yyyyMMdd"));
         registerCmd.Parameters.AddWithValue("@RegisteredAt", registeredAt);
-        await registerCmd.ExecuteNonQueryAsync();
+        await registerCmd.ExecuteNonQueryAsync(cancellationToken);
     }
 
-    public async Task DeleteClientFromTripAsync(int clientId, int tripId)
+    public async Task DeleteClientFromTripAsync(int clientId, int tripId, CancellationToken cancellationToken)
     {
         await using var conn = new SqlConnection(_connectionString);
         await conn.OpenAsync();
@@ -189,7 +189,7 @@ public class ClientRepository(IConfiguration configuration) : IClientRepository
         clientCmd.Parameters.AddWithValue("@IdClient", clientId);
         clientCmd.Parameters.AddWithValue("@IdTrip", tripId);
         
-        if((await clientCmd.ExecuteScalarAsync()) == null)
+        if((await clientCmd.ExecuteScalarAsync(cancellationToken)) == null)
             throw new ArgumentException($"Registration for client {clientId} and trip {tripId} does not exist");
 
         const string deleteRegistrationQuery = @"
@@ -199,6 +199,6 @@ public class ClientRepository(IConfiguration configuration) : IClientRepository
         deleteCmd.Parameters.AddWithValue("@IdClient", clientId);
         deleteCmd.Parameters.AddWithValue("@IdTrip", tripId);
         
-        await deleteCmd.ExecuteNonQueryAsync();
+        await deleteCmd.ExecuteNonQueryAsync(cancellationToken);
     }
 }

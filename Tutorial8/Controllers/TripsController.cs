@@ -13,9 +13,9 @@ namespace Tutorial8.Controllers
             and associated countries.
         */
         [HttpGet]
-        public async Task<IActionResult> GetTrips()
+        public async Task<IActionResult> GetTrips(CancellationToken cancellationToken)
         {
-            var trips = await tripsService.GetTrips();
+            var trips = await tripsService.GetTrips(cancellationToken);
             return Ok(trips);
         }
     }
