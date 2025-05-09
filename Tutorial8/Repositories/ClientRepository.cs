@@ -25,7 +25,7 @@ public class ClientRepository(IConfiguration configuration) : IClientRepository
             ORDER BY t.IdTrip;";
         
         await using var conn = new SqlConnection(_connectionString);
-        await conn.OpenAsync();
+        await conn.OpenAsync(cancellationToken);
         
         await using var cmd = new SqlCommand(query, conn);
         cmd.Parameters.AddWithValue("@IdClient", clientId);
@@ -116,69 +116,82 @@ public class ClientRepository(IConfiguration configuration) : IClientRepository
     public async Task RegisterClientToTripAsync(int clientId, int tripId, CancellationToken cancellationToken)
     {
         await using var conn = new SqlConnection(_connectionString);
-        await conn.OpenAsync();
-        
-        const string checkClientQuery = "SELECT 1 FROM Client WHERE IdClient = @IdClient;";
-        await using var clientCmd = new SqlCommand(checkClientQuery, conn);
-        clientCmd.Parameters.AddWithValue("@IdClient", clientId);
-        
-        if((await clientCmd.ExecuteScalarAsync(cancellationToken)) == null)
-            throw new ArgumentException("Client does not exist");
-        
-        const string checkNumOfParticipantsQuery = @"
-            SELECT t.MaxPeople AS MaxPeople, COUNT(*) AS SignedUpCount
-            FROM Trip t
-            LEFT JOIN Client_Trip ct ON t.IdTrip = ct.IdTrip
-            WHERE t.IdTrip = @IdTrip
-            GROUP BY t.MaxPeople;";
-        await using var numOfParticipantsCmd = new SqlCommand(checkNumOfParticipantsQuery, conn);
-        numOfParticipantsCmd.Parameters.AddWithValue("@IdTrip", tripId);
+        await conn.OpenAsync(cancellationToken);
+        var transaction = await conn.BeginTransactionAsync(cancellationToken);
 
-        int? maxPeople, currentSingedUpCount;
-
-        await using (var reader = await numOfParticipantsCmd.ExecuteReaderAsync(cancellationToken))
+        try
         {
-            if(await reader.ReadAsync())
+            const string checkClientQuery = "SELECT 1 FROM Client WHERE IdClient = @IdClient;";
+            await using var clientCmd = new SqlCommand(checkClientQuery, conn, (SqlTransaction)transaction);
+            clientCmd.Parameters.AddWithValue("@IdClient", clientId);
+            
+            if((await clientCmd.ExecuteScalarAsync(cancellationToken)) == null)
+                throw new ArgumentException("Client does not exist");
+            
+            const string checkNumOfParticipantsQuery = @"
+                SELECT t.MaxPeople AS MaxPeople, COUNT(*) AS SignedUpCount
+                FROM Trip t
+                LEFT JOIN Client_Trip ct ON t.IdTrip = ct.IdTrip
+                WHERE t.IdTrip = @IdTrip
+                GROUP BY t.MaxPeople;";
+            await using var numOfParticipantsCmd = 
+                new SqlCommand(checkNumOfParticipantsQuery, conn, (SqlTransaction)transaction);
+            numOfParticipantsCmd.Parameters.AddWithValue("@IdTrip", tripId);
+
+            int maxPeople, currentSignedUpCount;
+
+            await using (var reader = await numOfParticipantsCmd.ExecuteReaderAsync(cancellationToken))
             {
-               maxPeople = reader.GetInt32(reader.GetOrdinal("MaxPeople"));
-               currentSingedUpCount = reader.GetInt32(reader.GetOrdinal("SignedUpCount"));
+                if(await reader.ReadAsync(cancellationToken))
+                {
+                   maxPeople = reader.GetInt32(reader.GetOrdinal("MaxPeople"));
+                   currentSignedUpCount = reader.GetInt32(reader.GetOrdinal("SignedUpCount"));
+                }
+                else
+                {
+                    throw new ArgumentException("Trip does not exist");
+                }
             }
-            else
-            {
-                throw new ArgumentException("Trip does not exist");
-            }
+            
+            if (currentSignedUpCount >= maxPeople)
+               throw new ArgumentException("Maximum number of people exceeded");
+
+            const string checkIfNotAlreadyRegisteredQuery = @"
+                SELECT 1 
+                FROM Client_Trip 
+                WHERE IdClient = @IdClient AND IdTrip = @IdTrip;";
+            
+            await using var notAlreadyRegisteredCmd = 
+                new SqlCommand(checkIfNotAlreadyRegisteredQuery, conn, (SqlTransaction)transaction);
+            notAlreadyRegisteredCmd.Parameters.AddWithValue("@IdClient", clientId);
+            notAlreadyRegisteredCmd.Parameters.AddWithValue("@IdTrip", tripId);
+            
+            if((await notAlreadyRegisteredCmd.ExecuteScalarAsync(cancellationToken)) != null)
+                throw new ArgumentException("Trip already registered");
+
+            const string register = @"
+                INSERT INTO Client_Trip(IdClient, IdTrip, RegisteredAt, PaymentDate)
+                VALUES(@IdClient, @IdTrip, @RegisteredAt, NULL);";
+            await using var registerCmd = new SqlCommand(register, conn, (SqlTransaction)transaction);
+            registerCmd.Parameters.AddWithValue("@IdClient", clientId);
+            registerCmd.Parameters.AddWithValue("@IdTrip", tripId);
+            var registeredAt = int.Parse(DateTime.Now.ToString("yyyyMMdd"));
+            registerCmd.Parameters.AddWithValue("@RegisteredAt", registeredAt);
+            
+            await registerCmd.ExecuteNonQueryAsync(cancellationToken);
+            await transaction.CommitAsync(cancellationToken);
         }
-        
-        if (currentSingedUpCount >= maxPeople)
-           throw new ArgumentException("Maximum number of people exceeded");
-
-        const string checkIfNotAlreadyRegisteredQuery = @"
-            SELECT 1 
-            FROM Client_Trip 
-            WHERE IdClient = @IdClient AND IdTrip = @IdTrip;";
-        
-        await using var notAlreadyRegisteredCmd = new SqlCommand(checkIfNotAlreadyRegisteredQuery, conn);
-        notAlreadyRegisteredCmd.Parameters.AddWithValue("@IdClient", clientId);
-        notAlreadyRegisteredCmd.Parameters.AddWithValue("@IdTrip", tripId);
-        
-        if((await notAlreadyRegisteredCmd.ExecuteScalarAsync()) != null)
-            throw new ArgumentException("Trip already registered");
-
-        const string register = @"
-            INSERT INTO Client_Trip(IdClient, IdTrip, RegisteredAt, PaymentDate)
-            VALUES(@IdClient, @IdTrip, @RegisteredAt, NULL);";
-        await using var registerCmd = new SqlCommand(register, conn);
-        registerCmd.Parameters.AddWithValue("@IdClient", clientId);
-        registerCmd.Parameters.AddWithValue("@IdTrip", tripId);
-        var registeredAt = int.Parse(DateTime.Now.ToString("yyyyMMdd"));
-        registerCmd.Parameters.AddWithValue("@RegisteredAt", registeredAt);
-        await registerCmd.ExecuteNonQueryAsync(cancellationToken);
+        catch(Exception ex)
+        {
+           await transaction.RollbackAsync(cancellationToken); 
+           throw;
+        }
     }
 
     public async Task DeleteClientFromTripAsync(int clientId, int tripId, CancellationToken cancellationToken)
     {
         await using var conn = new SqlConnection(_connectionString);
-        await conn.OpenAsync();
+        await conn.OpenAsync(cancellationToken);
 
         const string checkIfRegistrationExistsQuery = @"
         SELECT 1
